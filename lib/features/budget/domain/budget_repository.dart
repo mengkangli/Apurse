@@ -55,7 +55,6 @@ class BudgetRepository {
       whereArgs: [categoryId, year, month],
     );
     for (final row in rows) {
-      row['spent'] = spent;
       await _db.update(
         DatabaseConstants.tableBudgets,
         {'spent': spent},

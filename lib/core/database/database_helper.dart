@@ -87,14 +87,27 @@ class DatabaseHelper {
     await ensureInit();
     if (_remote) return _apiClient!.query(table, columns: columns, where: where, whereArgs: whereArgs, orderBy: orderBy, limit: limit);
     if (kIsWeb) return _queryWeb(table, where: where, whereArgs: whereArgs, orderBy: orderBy, limit: limit);
-    return _db!.query(table, columns: columns, where: where, whereArgs: whereArgs, orderBy: orderBy, limit: limit);
+    final rows = await _db!.query(
+      table,
+      columns: columns,
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: orderBy,
+      limit: limit,
+    );
+    return rows
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
   }
 
   Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<dynamic>? args]) async {
     await ensureInit();
     if (_remote) return _apiClient!.rawQuery(sql, args);
     if (kIsWeb) return _rawQueryWeb(sql, args ?? []);
-    return _db!.rawQuery(sql, args);
+    final rows = await _db!.rawQuery(sql, args);
+    return rows
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList(growable: false);
   }
 
   Future<int> insert(String table, Map<String, dynamic> row, {ConflictAlgorithm? conflictAlgorithm}) async {

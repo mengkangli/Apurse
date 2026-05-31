@@ -28,8 +28,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   String? _categoryId;
   DateTime _date = DateTime.now();
   final _noteController = TextEditingController();
+  final _noteFocusNode = FocusNode();
   final _uuid = const Uuid();
   bool _hasDecimal = false;
+  bool _isNoteFocused = false;
   late AnimationController _shakeController;
 
   /// Cached categories for the inline chip rail. Reloaded whenever the
@@ -43,6 +45,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       vsync: this,
       duration: const Duration(milliseconds: 100),
     );
+    _noteFocusNode.addListener(() {
+      if (!mounted) return;
+      setState(() => _isNoteFocused = _noteFocusNode.hasFocus);
+    });
     _loadCategories();
   }
 
@@ -58,6 +64,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   @override
   void dispose() {
     _noteController.dispose();
+    _noteFocusNode.dispose();
     _shakeController.dispose();
     super.dispose();
   }
@@ -236,12 +243,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
               onSelect: (cat) => setState(() => _categoryId = cat.id),
             ),
             AppSpacing.gapMd,
+            if (_isNoteFocused) const Spacer(),
             // Note field — lives below the primary actions because it's
             // optional. Shorter height than before to give the keypad room.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               child: TextField(
                 controller: _noteController,
+                focusNode: _noteFocusNode,
+                textInputAction: TextInputAction.done,
+                onTapOutside: (_) => FocusScope.of(context).unfocus(),
                 decoration: const InputDecoration(
                   hintText: '添加备注…',
                   prefixIcon: Icon(Icons.edit_note_rounded, size: 20),
@@ -255,8 +266,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
                     null,
               ),
             ),
-            AppSpacing.gapSm,
-            Expanded(child: _buildNumPad()),
+            if (!_isNoteFocused) AppSpacing.gapSm,
+            if (!_isNoteFocused) Expanded(child: _buildNumPad()),
           ],
         ),
       ),
