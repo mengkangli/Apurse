@@ -5,6 +5,9 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/widgets/category_icon.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../shared/providers/category_list_provider.dart';
+import '../../../shared/providers/transaction_change_provider.dart';
+import '../../transaction/domain/transaction_repository.dart';
 import '../domain/category.dart';
 import '../domain/category_repository.dart';
 import 'add_category_screen.dart';
@@ -114,12 +117,18 @@ class CategoryManagementScreen extends ConsumerWidget {
           ? null
           : IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: '删除分类',
               onPressed: () async {
+                final used = await TransactionRepository()
+                    .countByCategory(category.id);
+                if (!context.mounted) return;
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
                     title: const Text('删除分类'),
-                    content: Text('确定要删除"${category.name}"吗？'),
+                    content: Text(used > 0
+                        ? '"${category.name}"下有 $used 笔记录，删除后它们会移到「其他」分类，该分类的预算也会一并删除。'
+                        : '确定要删除"${category.name}"吗？'),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, false),
@@ -133,10 +142,20 @@ class CategoryManagementScreen extends ConsumerWidget {
                     ],
                   ),
                 );
-                if (confirm == true) {
-                  await CategoryRepository().delete(category.id);
-                  ref.invalidate(categoryListProvider);
+                if (confirm != true) return;
+                try {
+                  await CategoryRepository().deleteAndReassign(category);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('删除失败：$e')),
+                    );
+                  }
+                  return;
                 }
+                ref.invalidate(categoryListProvider);
+                ref.invalidate(sharedCategoryListProvider);
+                if (context.mounted) notifyTransactionChanged(context);
               },
             ),
     );

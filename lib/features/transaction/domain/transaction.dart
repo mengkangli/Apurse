@@ -1,3 +1,5 @@
+import '../../../core/database/money.dart';
+
 class Transaction {
   final String id;
   final double amount;
@@ -23,9 +25,10 @@ class Transaction {
 
   bool get isIncome => type == 'income';
 
+  /// Database row. `amount` is stored in integer cents.
   Map<String, dynamic> toJson() => {
         'id': id,
-        'amount': amount,
+        'amount': toCents(amount),
         'type': type,
         'category_id': categoryId,
         'date': date.toIso8601String().substring(0, 10),
@@ -37,7 +40,7 @@ class Transaction {
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         id: json['id'] as String,
-        amount: (json['amount'] as num).toDouble(),
+        amount: fromCents(json['amount'] as num),
         type: json['type'] as String,
         categoryId: json['category_id'] as String,
         date: DateTime.parse(json['date'] as String),
@@ -70,4 +73,22 @@ class Transaction {
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+}
+
+/// Pre-filled values for a new record, e.g. from AI scan or a quick-add
+/// category chip. The add screen shows them for the user to confirm.
+class TransactionDraft {
+  final double? amount;
+  final String? type;
+  final String? categoryId;
+  final DateTime? date;
+  final String? note;
+
+  const TransactionDraft({
+    this.amount,
+    this.type,
+    this.categoryId,
+    this.date,
+    this.note,
+  });
 }

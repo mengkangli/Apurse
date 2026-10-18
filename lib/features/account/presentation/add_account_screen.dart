@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../domain/account.dart';
 import '../domain/account_repository.dart';
@@ -17,7 +18,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   final _balanceController = TextEditingController();
   String _type = 'wechat';
   int _colorValue = 0xFF07C160;
-  int _iconCodePoint = 0xe3d9;
+  int _iconCodePoint = Icons.chat_rounded.codePoint;
   bool _saving = false;
 
   bool get _isEditing => widget.account != null;
@@ -35,7 +36,12 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     super.initState();
     if (widget.account != null) {
       _nameController.text = widget.account!.name;
-      _balanceController.text = widget.account!.balance?.toString() ?? '';
+      final initial = widget.account!.initialBalance;
+      _balanceController.text = initial == null
+          ? ''
+          : initial == initial.roundToDouble()
+              ? initial.toStringAsFixed(0)
+              : initial.toStringAsFixed(2);
       _type = widget.account!.type;
       _colorValue = widget.account!.colorValue;
       _iconCodePoint = widget.account!.iconCodePoint;
@@ -65,7 +71,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       id: widget.account?.id ?? const Uuid().v4(),
       name: name,
       type: _type,
-      balance: double.tryParse(_balanceController.text.trim()),
+      initialBalance: double.tryParse(_balanceController.text.trim()),
       iconCodePoint: _iconCodePoint,
       colorValue: _colorValue,
       sortOrder: widget.account?.sortOrder ?? 99,
@@ -90,10 +96,43 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     }
   }
 
+  Future<void> _delete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除账户'),
+        content: Text('确定要删除"${widget.account!.name}"吗？\n\n该账户下的记录会保留，但不再属于任何账户。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: AppColors.expense)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await AccountRepository().delete(widget.account!.id);
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEditing ? '编辑账户' : '添加账户')),
+      appBar: AppBar(
+        title: Text(_isEditing ? '编辑账户' : '添加账户'),
+        actions: [
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: '删除账户',
+              onPressed: _delete,
+            ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
@@ -128,12 +167,16 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
             ),
             AppSpacing.gapXl,
 
-            Text('当前余额（可选）', style: Theme.of(context).textTheme.titleMedium),
+            Text('初始余额（可选）', style: Theme.of(context).textTheme.titleMedium),
             AppSpacing.gapSm,
             TextField(
               controller: _balanceController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(hintText: '0.00', prefixText: '¥ '),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+              decoration: const InputDecoration(
+                hintText: '0.00',
+                prefixText: '¥ ',
+                helperText: '开始记账时账户里的钱。之后的余额会根据记账自动计算',
+              ),
             ),
             AppSpacing.gapXxl,
 

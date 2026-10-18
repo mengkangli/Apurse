@@ -22,17 +22,32 @@ final categoryBreakdownProvider =
   final sumsByCat =
       await txRepo.sumExpenseByCategories(month.year, month.month);
 
+  final catsById = {for (final c in cats) c.id: c};
   final breakdowns = <CategoryBreakdown>[];
-  for (final cat in cats) {
-    final sum = sumsByCat[cat.id] ?? 0;
-    if (sum > 0) {
-      breakdowns.add(CategoryBreakdown(
-        categoryName: cat.name,
-        iconCode: cat.iconCodePoint,
-        colorValue: cat.colorValue,
-        amount: sum,
-      ));
+  var uncategorized = 0.0;
+  for (final MapEntry(key: id, value: sum) in sumsByCat.entries) {
+    if (sum <= 0) continue;
+    final cat = catsById[id];
+    if (cat == null) {
+      // Spending must still add up to the month's total even if its
+      // category row is gone.
+      uncategorized += sum;
+      continue;
     }
+    breakdowns.add(CategoryBreakdown(
+      categoryName: cat.name,
+      iconCode: cat.iconCodePoint,
+      colorValue: cat.colorValue,
+      amount: sum,
+    ));
+  }
+  if (uncategorized > 0) {
+    breakdowns.add(CategoryBreakdown(
+      categoryName: '未分类',
+      iconCode: Icons.more_horiz_rounded.codePoint,
+      colorValue: 0xFF9E9E9E,
+      amount: uncategorized,
+    ));
   }
 
   final total = breakdowns.fold<double>(0, (s, b) => s + b.amount);

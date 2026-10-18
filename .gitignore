@@ -15,11 +15,13 @@ build/
 .DS_Store
 Thumbs.db
 apurse_remote.db
-testegs/emulator_current.png
-testegs/drawer.png
-testegs/screen*.png
-testegs/ui*.xml
-testegs/*result*.png
+# Dev server data and anything used to try the AI prompt — real receipts
+# carry order numbers and payment details, keep them out of git.
+tools/*.db
+tools/*.jpg
+tools/*.jpeg
+tools/*.png
+tools/*.json
 skills-lock.json
 .claude/
 .env

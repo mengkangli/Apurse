@@ -1,8 +1,13 @@
+import '../../../core/database/money.dart';
+
 class Account {
   final String id;
   final String name;
   final String type; // 'bank_card' | 'wechat' | 'alipay' | 'cash' | 'other'
-  final double? balance;
+
+  /// Balance when the account was added. The current balance is this plus
+  /// the account's income minus its expenses (see `AccountRepository`).
+  final double? initialBalance;
   final int iconCodePoint;
   final int colorValue;
   final int sortOrder;
@@ -13,7 +18,7 @@ class Account {
     required this.id,
     required this.name,
     required this.type,
-    this.balance,
+    this.initialBalance,
     required this.iconCodePoint,
     required this.colorValue,
     required this.sortOrder,
@@ -31,11 +36,12 @@ class Account {
     };
   }
 
+  /// Database row. `initial_balance` is stored in integer cents.
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'type': type,
-        'balance': balance,
+        'initial_balance': toCentsOrNull(initialBalance),
         'icon_code': iconCodePoint,
         'color_value': colorValue,
         'sort_order': sortOrder,
@@ -47,7 +53,7 @@ class Account {
         id: json['id'] as String,
         name: json['name'] as String,
         type: json['type'] as String,
-        balance: (json['balance'] as num?)?.toDouble(),
+        initialBalance: fromCentsOrNull(json['initial_balance'] as num?),
         iconCodePoint: json['icon_code'] as int,
         colorValue: json['color_value'] as int,
         sortOrder: json['sort_order'] as int,
@@ -59,7 +65,7 @@ class Account {
     String? id,
     String? name,
     String? type,
-    double? balance,
+    double? initialBalance,
     int? iconCodePoint,
     int? colorValue,
     int? sortOrder,
@@ -70,7 +76,7 @@ class Account {
       id: id ?? this.id,
       name: name ?? this.name,
       type: type ?? this.type,
-      balance: balance ?? this.balance,
+      initialBalance: initialBalance ?? this.initialBalance,
       iconCodePoint: iconCodePoint ?? this.iconCodePoint,
       colorValue: colorValue ?? this.colorValue,
       sortOrder: sortOrder ?? this.sortOrder,
@@ -78,4 +84,12 @@ class Account {
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+}
+
+/// An account with its balance computed from transactions.
+class AccountBalance {
+  final Account account;
+  final double balance;
+
+  const AccountBalance({required this.account, required this.balance});
 }

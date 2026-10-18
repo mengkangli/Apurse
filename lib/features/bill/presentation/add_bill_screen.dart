@@ -77,7 +77,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
       categoryId: _categoryId!,
       dueDay: dueDay,
       isRecurring: _isRecurring,
-      isPaid: false,
+      paid: false,
       createdAt: now,
       updatedAt: now,
     );

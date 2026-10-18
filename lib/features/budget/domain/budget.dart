@@ -1,9 +1,14 @@
+import '../../../core/database/money.dart';
+
 class Budget {
   final String id;
   final String categoryId;
   final double amount;
   final int month;
   final int year;
+
+  /// This month's expenses in the category. Not stored: [BudgetRepository]
+  /// sums the transactions each time it loads budgets, so it can't drift.
   final double spent;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -14,7 +19,7 @@ class Budget {
     required this.amount,
     required this.month,
     required this.year,
-    required this.spent,
+    this.spent = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -28,13 +33,13 @@ class Budget {
     return 'safe';
   }
 
+  /// Database row. `amount` is stored in integer cents.
   Map<String, dynamic> toJson() => {
         'id': id,
         'category_id': categoryId,
-        'amount': amount,
+        'amount': toCents(amount),
         'month': month,
         'year': year,
-        'spent': spent,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
       };
@@ -42,10 +47,9 @@ class Budget {
   factory Budget.fromJson(Map<String, dynamic> json) => Budget(
         id: json['id'] as String,
         categoryId: json['category_id'] as String,
-        amount: (json['amount'] as num).toDouble(),
+        amount: fromCents(json['amount'] as num),
         month: json['month'] as int,
         year: json['year'] as int,
-        spent: (json['spent'] as num).toDouble(),
         createdAt: DateTime.parse(json['created_at'] as String),
         updatedAt: DateTime.parse(json['updated_at'] as String),
       );

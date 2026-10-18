@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/widgets/app_icon_data.dart';
+import '../../../core/widgets/category_icon.dart';
 import '../domain/category.dart';
 import '../domain/category_repository.dart';
 
@@ -17,44 +18,12 @@ class AddCategoryScreen extends StatefulWidget {
 class _AddCategoryScreenState extends State<AddCategoryScreen> {
   final _nameController = TextEditingController();
   String _type = 'expense';
-  int _selectedIconCode = 0xe561; // restaurant
+  int _selectedIconCode = AppIconData.categoryPalette.first.codePoint;
   int _selectedColorValue = 0xFFD4914A;
   final _uuid = const Uuid();
 
-  static const _icons = [
-    0xe561,
-    0xe531,
-    0xe54f,
-    0xe02c,
-    0xe328,
-    0xe548,
-    0xe227,
-    0xe0af,
-    0xe0f2,
-    0xe31b,
-    0xe80e,
-    0xe8b0,
-    0xe0be,
-    0xe30d,
-    0xe553,
-    0xe04b,
-    0xe54e,
-    0xe57a,
-    0xe050,
-    0xe53a,
-    0xe30a,
-    0xe059,
-    0xe3b3,
-    0xe043,
-    0xe578,
-    0xe32a,
-    0xe0f8,
-    0xe552,
-    0xe8b8,
-    0xe321,
-    0xe234,
-    0xe7f1,
-  ];
+  static final _icons =
+      AppIconData.categoryPalette.map((icon) => icon.codePoint).toList();
 
   static const _presetColors = [
     Color(0xFFD4914A),
@@ -125,15 +94,38 @@ class _AddCategoryScreenState extends State<AddCategoryScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Column(
+                children: [
+                  CategoryIcon(
+                    iconCodePoint: _selectedIconCode,
+                    color: Color(_selectedColorValue),
+                    size: 64,
+                  ),
+                  AppSpacing.gapSm,
+                  ValueListenableBuilder(
+                    valueListenable: _nameController,
+                    builder: (context, value, _) => Text(
+                      value.text.trim().isEmpty ? '新分类' : value.text.trim(),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            AppSpacing.gapXl,
             // Type toggle
             Text('类型', style: Theme.of(context).textTheme.titleMedium),
             AppSpacing.gapSm,
-            SegmentedButton<String>(
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
               segments: const [
                 ButtonSegment(value: 'expense', label: Text('支出')),
                 ButtonSegment(value: 'income', label: Text('收入')),
               ],
               selected: {_type},
+              showSelectedIcon: false,
               onSelectionChanged: (v) => setState(() => _type = v.first),
               style: ButtonStyle(
                 backgroundColor: WidgetStateProperty.resolveWith((states) {
@@ -144,6 +136,7 @@ class _AddCategoryScreenState extends State<AddCategoryScreen> {
                   }
                   return null;
                 }),
+              ),
               ),
             ),
             AppSpacing.gapXl,

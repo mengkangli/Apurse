@@ -5,14 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_spacing.dart';
-import '../../../shared/providers/transaction_change_provider.dart';
+import '../../category/domain/category.dart';
 import '../../category/domain/category_repository.dart';
 import '../../transaction/domain/transaction.dart';
-import '../../transaction/domain/transaction_repository.dart';
+import '../../transaction/presentation/add_transaction_screen.dart';
 import '../data/ai_scan_service.dart';
 
 class AiScanScreen extends StatefulWidget {
@@ -35,12 +34,39 @@ class _AiScanScreenState extends State<AiScanScreen> {
   String _ocrText = '';
   bool _useManualText = false;
 
+  /// The user's categories: sent to the model so it picks from them, and
+  /// used to map its answer back to a category id.
+  List<Category> _categories = const [];
+
   @override
   void initState() {
     super.initState();
     _loadApiKey();
+    _loadCategories();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadSharedImage());
   }
+
+  Future<void> _loadCategories() async {
+    final cats = await CategoryRepository().getAll();
+    if (mounted) setState(() => _categories = cats);
+  }
+
+  List<String> _categoryNames(String type) =>
+      _categories.where((c) => c.type == type).map((c) => c.name).toList();
+
+  Future<AiScanResult> _parse(String text, String apiKey) {
+    return AiScanService.instance.parseText(
+      text: text,
+      apiKey: apiKey,
+      expenseCategories: _categoryNames('expense'),
+      incomeCategories: _categoryNames('income'),
+    );
+  }
+
+  /// The category the model picked, or null when it named none of ours.
+  Category? _matchedCategory(AiScanResult result) => _categories
+      .where((c) => c.type == result.type && c.name == result.categoryName)
+      .firstOrNull;
 
   @override
   void dispose() {
@@ -153,10 +179,7 @@ class _AiScanScreenState extends State<AiScanScreen> {
     setState(() => _currentStep = AiScanPipelineStep.parsing);
 
     try {
-      final result = await AiScanService.instance.parseText(
-        text: ocrText,
-        apiKey: apiKey,
-      );
+      final result = await _parse(ocrText, apiKey);
       if (!mounted) return;
       setState(() {
         _scanResult = result;
@@ -200,10 +223,7 @@ class _AiScanScreenState extends State<AiScanScreen> {
     });
 
     try {
-      final result = await AiScanService.instance.parseText(
-        text: text,
-        apiKey: apiKey,
-      );
+      final result = await _parse(text, apiKey);
       if (!mounted) return;
       setState(() {
         _scanResult = result;
@@ -228,54 +248,37 @@ class _AiScanScreenState extends State<AiScanScreen> {
     }
   }
 
-  Future<void> _save() async {
-    if (_scanResult == null) return;
+  /// Opens the add screen pre-filled with the scan so the user confirms (and
+  /// can fix) amount, category, date and account before anything is saved.
+  Future<void> _confirm() async {
+    final result = _scanResult;
+    if (result == null) return;
     setState(() => _saving = true);
 
-    try {
-      final categories =
-          await CategoryRepository().getByType(_scanResult!.type);
-      String? categoryId;
+    // Unmatched categories go to "其他" rather than silently to whatever
+    // category happens to be first.
+    final category = _matchedCategory(result) ??
+        await CategoryRepository().fallbackFor(result.type);
+    if (!mounted) return;
 
-      if (categories.isNotEmpty) {
-        final matched = categories
-            .where((c) => c.name == _scanResult!.categoryName)
-            .firstOrNull;
-        categoryId = matched?.id ?? categories.first.id;
-      }
-
-      if (categoryId == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请先添加分类')),
-          );
-          setState(() => _saving = false);
-        }
-        return;
-      }
-
-      final now = DateTime.now();
-      final tx = Transaction(
-        id: const Uuid().v4(),
-        amount: _scanResult!.amount,
-        type: _scanResult!.type,
-        categoryId: categoryId,
-        date: _scanResult!.date ?? now,
-        note: _scanResult!.note,
-        createdAt: now,
-        updatedAt: now,
-      );
-
-      await TransactionRepository().insert(tx);
-      if (mounted) notifyTransactionChanged(context);
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败：$e')),
-        );
-      }
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddTransactionScreen(
+          draft: TransactionDraft(
+            amount: result.amount > 0 ? result.amount : null,
+            type: result.type,
+            categoryId: category?.id,
+            date: result.date,
+            note: result.note,
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (saved == true) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _saving = false);
     }
   }
 
@@ -375,7 +378,7 @@ class _AiScanScreenState extends State<AiScanScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _saving ? null : _save,
+                  onPressed: _saving ? null : _confirm,
                   child: _saving
                       ? const SizedBox(
                           width: 20,
@@ -385,7 +388,7 @@ class _AiScanScreenState extends State<AiScanScreen> {
                             color: Colors.white,
                           ),
                         )
-                      : const Text('确认记账'),
+                      : const Text('核对并记账'),
                 ),
               ),
             ],
@@ -632,7 +635,11 @@ class _AiScanScreenState extends State<AiScanScreen> {
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.sm,
             children: [
-              _chip(Icons.category_outlined, result.categoryName ?? '未识别'),
+              _chip(
+                Icons.category_outlined,
+                _matchedCategory(result)?.name ??
+                    '${result.categoryName ?? '未识别'} → 其他',
+              ),
               _chip(Icons.note_outlined, result.note ?? '无备注'),
             ],
           ),

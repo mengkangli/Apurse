@@ -134,7 +134,11 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
                 SliverToBoxAdapter(
-                    child: _BudgetRail(budgets: summary.budgets)),
+                  child: _BudgetRail(
+                    budgets: summary.budgets,
+                    categories: categoriesAsync.valueOrNull ?? const [],
+                  ),
+                ),
               ],
               if (summary.upcomingBills.isNotEmpty) ...[
                 const SliverPadding(
@@ -200,7 +204,6 @@ class _HeroBalance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       child: Container(
@@ -251,7 +254,9 @@ class _HeroBalance extends StatelessWidget {
               curve: Curves.easeOutCubic,
               builder: (_, value, __) => Text(
                 _formatCurrency(value),
-                style: AppTypography.numericHero.copyWith(color: cs.onPrimary),
+                // The gradient is the same in both themes, so the text is a
+                // fixed white rather than onPrimary (dark in dark mode).
+                style: AppTypography.numericHero.copyWith(color: Colors.white),
                 maxLines: 1,
                 overflow: TextOverflow.visible,
               ),
@@ -514,10 +519,10 @@ class _QuickCategoryChip extends StatelessWidget {
     final color = Color(category.colorValue);
     return InkWell(
       borderRadius: AppRadius.allLg,
-      onTap: () {
-        // TODO: pass selected category once add screen accepts an extra arg.
-        context.push('/transaction/add');
-      },
+      onTap: () => context.push(
+        '/transaction/add',
+        extra: TransactionDraft(type: 'expense', categoryId: category.id),
+      ),
       child: Container(
         width: 76,
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
@@ -551,18 +556,26 @@ class _QuickCategoryChip extends StatelessWidget {
 // ─── Budget rail ─────────────────────────────────────────────────
 class _BudgetRail extends StatelessWidget {
   final List<Budget> budgets;
-  const _BudgetRail({required this.budgets});
+  final List<Category> categories;
+  const _BudgetRail({required this.budgets, required this.categories});
 
   @override
   Widget build(BuildContext context) {
+    // Most-used first: the budget closest to its limit is the one to see.
+    final sorted = [...budgets]
+      ..sort((a, b) => b.percentage.compareTo(a.percentage));
     return SizedBox(
-      height: 110,
+      height: 112,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        itemCount: budgets.length,
+        itemCount: sorted.length,
         separatorBuilder: (_, __) => AppSpacing.gapMd,
-        itemBuilder: (_, i) => _BudgetCard(budget: budgets[i]),
+        itemBuilder: (_, i) => _BudgetCard(
+          budget: sorted[i],
+          category:
+              categories.where((c) => c.id == sorted[i].categoryId).firstOrNull,
+        ),
       ),
     );
   }
@@ -570,61 +583,82 @@ class _BudgetRail extends StatelessWidget {
 
 class _BudgetCard extends StatelessWidget {
   final Budget budget;
-  const _BudgetCard({required this.budget});
+  final Category? category;
+  const _BudgetCard({required this.budget, this.category});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final pct = (budget.percentage / 100).clamp(0.0, 1.0);
-    final progressColor = pct >= 1
+    final progressColor = budget.percentage >= 100
         ? AppColors.budgetExceeded
-        : pct >= 0.8
+        : budget.percentage >= 80
             ? AppColors.budgetWarning
             : AppColors.budgetSafe;
+    final money = NumberFormat('#,##0', 'en_US');
+    final exceeded = budget.remaining < 0;
 
-    return Container(
-      width: 160,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: AppRadius.allLg,
-        border: Border.all(color: cs.outlineVariant, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '¥${NumberFormat('#,##0', 'en_US').format(budget.amount)}',
-                style: AppTypography.titleSmall,
-              ),
-              Text(
-                '${budget.percentage.toStringAsFixed(0)}%',
-                style: AppTypography.labelSmall.copyWith(color: progressColor),
-              ),
-            ],
-          ),
-          AppSpacing.gapSm,
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.xs),
-            child: LinearProgressIndicator(
-              value: pct,
-              backgroundColor:
-                  progressColor.withValues(alpha: AppColors.opacityAccentFill),
-              color: progressColor,
-              minHeight: 6,
+    return InkWell(
+      borderRadius: AppRadius.allLg,
+      onTap: () => context.push('/budgets'),
+      child: Container(
+        width: 168,
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: cs.surface,
+          borderRadius: AppRadius.allLg,
+          border: Border.all(color: cs.outlineVariant, width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (category != null) ...[
+                  CategoryIcon(
+                    iconCodePoint: category!.iconCodePoint,
+                    color: Color(category!.colorValue),
+                    size: 28,
+                  ),
+                  AppSpacing.gapSm,
+                ],
+                Expanded(
+                  child: Text(
+                    category?.name ?? '预算',
+                    style: AppTypography.titleSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '${budget.percentage.toStringAsFixed(0)}%',
+                  style: AppTypography.labelSmall.copyWith(color: progressColor),
+                ),
+              ],
             ),
-          ),
-          AppSpacing.gapXs,
-          Text(
-            '剩余 ¥${NumberFormat('#,##0', 'en_US').format(budget.remaining)}',
-            style: AppTypography.bodySmall.copyWith(
-              color: cs.onSurfaceVariant,
+            const Spacer(),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.xs),
+              child: LinearProgressIndicator(
+                value: pct,
+                backgroundColor:
+                    progressColor.withValues(alpha: AppColors.opacityAccentFill),
+                color: progressColor,
+                minHeight: 6,
+              ),
             ),
-          ),
-        ],
+            AppSpacing.gapSm,
+            Text(
+              exceeded
+                  ? '超支 ¥${money.format(-budget.remaining)}'
+                  : '¥${money.format(budget.spent)} / ¥${money.format(budget.amount)}',
+              style: AppTypography.bodySmall.copyWith(
+                color: exceeded ? AppColors.budgetExceeded : cs.onSurfaceVariant,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -716,6 +750,7 @@ class _TransactionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      onTap: () => context.push('/transaction/add', extra: tx),
       leading: category != null
           ? CategoryIcon(
               iconCodePoint: category!.iconCodePoint,

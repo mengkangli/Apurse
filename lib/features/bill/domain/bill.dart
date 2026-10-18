@@ -1,3 +1,6 @@
+import '../../../core/database/money.dart';
+import '../../../shared/utils/month_utils.dart';
+
 class Bill {
   final String id;
   final String name;
@@ -5,7 +8,13 @@ class Bill {
   final String categoryId;
   final int dueDay;
   final bool isRecurring;
-  final bool isPaid;
+
+  /// Raw `is_paid` flag. Only one-off bills use it directly; a recurring
+  /// bill is paid only for the month in [lastPaidPeriod].
+  final bool paid;
+
+  /// `"yyyy-MM"` of the month the bill was last marked paid.
+  final String? lastPaidPeriod;
   final int? notificationId;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -17,11 +26,19 @@ class Bill {
     required this.categoryId,
     required this.dueDay,
     required this.isRecurring,
-    required this.isPaid,
+    required this.paid,
+    this.lastPaidPeriod,
     this.notificationId,
     required this.createdAt,
     required this.updatedAt,
   });
+
+  bool get isPaid => isPaidOn(DateTime.now());
+
+  /// Whether the bill counts as paid on [date]: one-off bills stay paid,
+  /// recurring bills reset when a new month starts.
+  bool isPaidOn(DateTime date) =>
+      isRecurring ? lastPaidPeriod == monthKey(date) : paid;
 
   /// The actual due date this month (or next month if passed), clamped to valid days.
   DateTime get currentDueDate {
@@ -63,14 +80,16 @@ class Bill {
     return due.difference(now);
   }
 
+  /// Database row. `amount` is stored in integer cents.
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'amount': amount,
+        'amount': toCents(amount),
         'category_id': categoryId,
         'due_day': dueDay,
         'is_recurring': isRecurring ? 1 : 0,
-        'is_paid': isPaid ? 1 : 0,
+        'is_paid': paid ? 1 : 0,
+        'last_paid_period': lastPaidPeriod,
         'notification_id': notificationId,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
@@ -79,11 +98,12 @@ class Bill {
   factory Bill.fromJson(Map<String, dynamic> json) => Bill(
         id: json['id'] as String,
         name: json['name'] as String,
-        amount: (json['amount'] as num).toDouble(),
+        amount: fromCents(json['amount'] as num),
         categoryId: json['category_id'] as String,
         dueDay: json['due_day'] as int,
         isRecurring: (json['is_recurring'] as int) == 1,
-        isPaid: (json['is_paid'] as int) == 1,
+        paid: (json['is_paid'] as int) == 1,
+        lastPaidPeriod: json['last_paid_period'] as String?,
         notificationId: json['notification_id'] as int?,
         createdAt: DateTime.parse(json['created_at'] as String),
         updatedAt: DateTime.parse(json['updated_at'] as String),
@@ -96,7 +116,8 @@ class Bill {
     String? categoryId,
     int? dueDay,
     bool? isRecurring,
-    bool? isPaid,
+    bool? paid,
+    String? lastPaidPeriod,
     int? notificationId,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -108,7 +129,8 @@ class Bill {
       categoryId: categoryId ?? this.categoryId,
       dueDay: dueDay ?? this.dueDay,
       isRecurring: isRecurring ?? this.isRecurring,
-      isPaid: isPaid ?? this.isPaid,
+      paid: paid ?? this.paid,
+      lastPaidPeriod: lastPaidPeriod ?? this.lastPaidPeriod,
       notificationId: notificationId ?? this.notificationId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

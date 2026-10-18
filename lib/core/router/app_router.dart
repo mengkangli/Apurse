@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/transaction/presentation/transaction_list_screen.dart';
+import '../../features/transaction/domain/transaction.dart';
 import '../../features/transaction/presentation/add_transaction_screen.dart';
 import '../../features/statistics/presentation/statistics_screen.dart';
 import '../../features/budget/presentation/budget_list_screen.dart';
@@ -73,7 +74,14 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/transaction/add',
       parentNavigatorKey: _rootNavigatorKey,
-      builder: (context, state) => const AddTransactionScreen(),
+      // extra: a Transaction to edit, or a TransactionDraft to pre-fill.
+      builder: (context, state) {
+        final extra = state.extra;
+        return AddTransactionScreen(
+          editing: extra is Transaction ? extra : null,
+          draft: extra is TransactionDraft ? extra : null,
+        );
+      },
     ),
     GoRoute(
       path: '/ai-scan',

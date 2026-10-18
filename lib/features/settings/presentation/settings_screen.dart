@@ -45,7 +45,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         title: const Text('切换数据存储'),
         content: Text(
           mode == StorageMode.remote
-              ? '切换到远程数据库？\n\n请先确认服务端正在运行。'
+              ? '切换到开发服务器？\n\n请先在电脑上运行 tools/dev_server.py。'
               : '切换到本地存储？\n\n数据将保存在当前设备。',
         ),
         actions: [
@@ -92,7 +92,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           obscureText: true,
           decoration: const InputDecoration(
             hintText: 'sk-...',
-            helperText: '用于智能扫描收据，仅保存在本机',
+            helperText: '用于智能扫描收据，加密保存在本机',
           ),
         ),
         actions: [
@@ -150,28 +150,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (mode) =>
                 ref.read(themeModeProvider.notifier).setMode(mode),
           ),
-          AppSpacing.gapXl,
-          const _SectionLabel('数据存储'),
-          AppSpacing.gapSm,
-          _SettingsGroup(
-            children: [
-              _SettingsTile(
-                icon: _mode == StorageMode.remote
-                    ? Icons.cloud_done_outlined
-                    : Icons.phone_android_outlined,
-                iconColor: _mode == StorageMode.remote
-                    ? AppColors.expense
-                    : AppColors.income,
-                title: '数据库',
-                subtitle: _mode == StorageMode.remote ? '远程服务器' : '本地存储',
-                onTap: () => _switchMode(
-                  _mode == StorageMode.remote
-                      ? StorageMode.local
-                      : StorageMode.remote,
+          // The dev server has no auth, so this switch exists only in debug
+          // builds (see StorageConfig.remoteAvailable).
+          if (StorageConfig.remoteAvailable) ...[
+            AppSpacing.gapXl,
+            const _SectionLabel('开发调试'),
+            AppSpacing.gapSm,
+            _SettingsGroup(
+              children: [
+                _SettingsTile(
+                  icon: _mode == StorageMode.remote
+                      ? Icons.cloud_done_outlined
+                      : Icons.phone_android_outlined,
+                  iconColor: _mode == StorageMode.remote
+                      ? AppColors.expense
+                      : AppColors.income,
+                  title: '数据库',
+                  subtitle: _mode == StorageMode.remote
+                      ? '开发服务器（仅调试版）'
+                      : '本地存储',
+                  onTap: () => _switchMode(
+                    _mode == StorageMode.remote
+                        ? StorageMode.local
+                        : StorageMode.remote,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
           AppSpacing.gapXl,
           const _SectionLabel('AI 配置'),
           AppSpacing.gapSm,
@@ -194,8 +200,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               _SettingsTile(
                 icon: Icons.info_outline_rounded,
                 iconColor: colorScheme.primary,
-                title: '关于钱记',
-                subtitle: '版本 1.0.0',
+                title: '关于 Apurse',
+                subtitle: '版本 1.1.0',
               ),
               const _SettingsTile(
                 icon: Icons.favorite_rounded,

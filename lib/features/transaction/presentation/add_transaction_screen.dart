@@ -1,21 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_radius.dart';
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_icon_data.dart';
 import '../../../core/widgets/category_icon.dart';
 import '../../../shared/providers/transaction_change_provider.dart';
+import '../../account/domain/account.dart';
+import '../../account/domain/account_repository.dart';
 import '../../category/domain/category.dart';
 import '../../category/domain/category_repository.dart';
 import '../domain/transaction.dart';
 import '../domain/transaction_repository.dart';
 
+/// Records a new transaction, or edits [editing] when given. [draft]
+/// pre-fills a new record (AI scan, quick-add chips) for the user to
+/// confirm. Pops `true` once something was saved or deleted.
 class AddTransactionScreen extends StatefulWidget {
-  const AddTransactionScreen({super.key});
+  final Transaction? editing;
+  final TransactionDraft? draft;
+
+  const AddTransactionScreen({super.key, this.editing, this.draft});
 
   @override
   State<AddTransactionScreen> createState() => _AddTransactionScreenState();
@@ -26,6 +36,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   String _amount = '0';
   String _type = 'expense';
   String? _categoryId;
+  String? _accountId;
   DateTime _date = DateTime.now();
   final _noteController = TextEditingController();
   final _noteFocusNode = FocusNode();
@@ -37,6 +48,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   /// Cached categories for the inline chip rail. Reloaded whenever the
   /// type toggle flips between expense ↔ income.
   List<Category> _categories = const [];
+  List<Account> _accounts = const [];
+
+  static const _lastAccountKey = 'last_account_id';
+
+  bool get _isEditing => widget.editing != null;
 
   @override
   void initState() {
@@ -49,16 +65,126 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       if (!mounted) return;
       setState(() => _isNoteFocused = _noteFocusNode.hasFocus);
     });
-    _loadCategories();
+
+    final editing = widget.editing;
+    final draft = widget.draft;
+    final amount = editing?.amount ?? draft?.amount;
+    if (amount != null && amount > 0) {
+      _amount = _amountToInput(amount);
+      _hasDecimal = _amount.contains('.');
+    }
+    _type = editing?.type ?? draft?.type ?? 'expense';
+    _date = editing?.date ?? draft?.date ?? DateTime.now();
+    _noteController.text = editing?.note ?? draft?.note ?? '';
+    _categoryId = editing?.categoryId ?? draft?.categoryId;
+    _accountId = editing?.accountId;
+
+    _loadCategories(keepSelection: true);
+    _loadAccounts();
   }
 
-  Future<void> _loadCategories() async {
+  /// `24.6` → `"24.6"`, `30.0` → `"30"`: what the keypad would have typed.
+  static String _amountToInput(double amount) {
+    if (amount == amount.roundToDouble()) return amount.toInt().toString();
+    var s = amount.toStringAsFixed(2);
+    if (s.endsWith('0')) s = s.substring(0, s.length - 1);
+    return s;
+  }
+
+  Future<void> _loadCategories({bool keepSelection = false}) async {
     final cats = await CategoryRepository().getByType(_type);
     if (!mounted) return;
     setState(() {
       _categories = cats;
-      _categoryId = cats.isNotEmpty ? cats.first.id : null;
+      final keep = keepSelection && cats.any((c) => c.id == _categoryId);
+      if (!keep) _categoryId = cats.isNotEmpty ? cats.first.id : null;
     });
+  }
+
+  Future<void> _loadAccounts() async {
+    final accounts = await AccountRepository().getAll();
+    String? lastUsed;
+    if (!_isEditing) {
+      final prefs = await SharedPreferences.getInstance();
+      lastUsed = prefs.getString(_lastAccountKey);
+    }
+    if (!mounted) return;
+    setState(() {
+      _accounts = accounts;
+      if (!_isEditing && accounts.any((a) => a.id == lastUsed)) {
+        _accountId = lastUsed;
+      }
+    });
+  }
+
+  Account? get _selectedAccount =>
+      _accounts.where((a) => a.id == _accountId).firstOrNull;
+
+  Future<void> _pickAccount() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.block_rounded),
+              title: const Text('不指定账户'),
+              selected: _accountId == null,
+              onTap: () => Navigator.pop(ctx, ''),
+            ),
+            for (final a in _accounts)
+              ListTile(
+                leading: Icon(AppIconData.fromCodePoint(a.iconCodePoint),
+                    color: Color(a.colorValue)),
+                title: Text(a.name),
+                subtitle: Text(a.typeLabel),
+                selected: a.id == _accountId,
+                trailing: a.id == _accountId
+                    ? const Icon(Icons.check_rounded)
+                    : null,
+                onTap: () => Navigator.pop(ctx, a.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _accountId = picked.isEmpty ? null : picked);
+  }
+
+  Future<void> _rememberAccount() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_accountId == null) {
+      await prefs.remove(_lastAccountKey);
+    } else {
+      await prefs.setString(_lastAccountKey, _accountId!);
+    }
+  }
+
+  Future<void> _delete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除记录'),
+        content: const Text('确定要删除这条记录吗？删除后不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: AppColors.expense)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await TransactionRepository().delete(widget.editing!.id);
+    if (mounted) notifyTransactionChanged(context);
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -112,16 +238,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
   }
 
   Future<void> _save() async {
+    // "123." parses as 123, which is what the user meant.
     final parsedAmount = double.tryParse(_amount) ?? 0;
-    // Allow amounts ending with "." like "123." → parse as-is (or warn)
     if (parsedAmount <= 0) {
-      if (_amount.endsWith('.') ||
-          _amount == '0' ||
-          _amount == '0.' ||
-          _amount == '0.0' ||
-          _amount == '0.00') {
-        // Amount not yet entered meaningfully
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请输入有效金额')),
       );
@@ -136,7 +255,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
 
     final now = DateTime.now();
     final tx = Transaction(
-      id: _uuid.v4(),
+      id: widget.editing?.id ?? _uuid.v4(),
       amount: parsedAmount,
       type: _type,
       categoryId: _categoryId!,
@@ -144,14 +263,21 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       note: _noteController.text.trim().isEmpty
           ? null
           : _noteController.text.trim(),
-      createdAt: now,
+      accountId: _accountId,
+      createdAt: widget.editing?.createdAt ?? now,
       updatedAt: now,
     );
 
     try {
-      await TransactionRepository().insert(tx);
+      final repo = TransactionRepository();
+      if (_isEditing) {
+        await repo.update(tx);
+      } else {
+        await repo.insert(tx);
+        await _rememberAccount();
+      }
       if (mounted) notifyTransactionChanged(context);
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -182,8 +308,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
     return Scaffold(
       backgroundColor: colorScheme.surfaceContainerLowest,
       appBar: AppBar(
-        title: const Text('记一笔'),
+        title: Text(_isEditing ? '编辑记录' : '记一笔'),
         actions: [
+          if (_isEditing)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: '删除记录',
+              onPressed: _delete,
+            ),
           TextButton(
             onPressed: _save,
             child: const Text('保存'),
@@ -234,6 +366,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
               date: _date,
               onPick: _pickDate,
               onSet: (d) => setState(() => _date = d),
+              trailing: _accounts.isEmpty
+                  ? null
+                  : _DatePill(
+                      label: _selectedAccount?.name ?? '选择账户',
+                      icon: Icons.account_balance_wallet_outlined,
+                      selected: _selectedAccount != null,
+                      onTap: _pickAccount,
+                    ),
             ),
             AppSpacing.gapMd,
             // Inline category chip rail — replaces the modal sheet.
@@ -292,7 +432,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
       ['1', '2', '3', 'back'],
       ['4', '5', '6', 'clear'],
       ['7', '8', '9', '.'],
-      ['00', '0', '', 'save'],
+      ['00', '0', 'save'], // save spans the last two cells
     ];
 
     return Padding(
@@ -304,21 +444,35 @@ class _AddTransactionScreenState extends State<AddTransactionScreen>
               children: row.map((key) {
                 if (key == 'save') {
                   return Expanded(
+                    flex: 2,
                     child: Padding(
                       padding: const EdgeInsets.all(4),
-                      child: ElevatedButton(
+                      // Tight constraints so it fills the cell like the
+                      // number keys.
+                      child: SizedBox.expand(
+                        child: ElevatedButton(
                         onPressed: _save,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _type == 'expense'
                               ? AppColors.expense
                               : AppColors.income,
                           foregroundColor: Colors.white,
+                          elevation: 0,
                           shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(AppSpacing.buttonRadius),
+                            borderRadius: AppRadius.allMd,
                           ),
                         ),
-                        child: const Text('保存', style: TextStyle(fontSize: 16)),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.check_rounded, size: 20),
+                            AppSpacing.gapXs,
+                            Text(_isEditing ? '保存修改' : '保存',
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                        ),
                       ),
                     ),
                   );
@@ -497,10 +651,14 @@ class _DatePillRow extends StatelessWidget {
   final DateTime date;
   final VoidCallback onPick;
   final ValueChanged<DateTime> onSet;
+
+  /// Extra pill after the dates (the account picker).
+  final Widget? trailing;
   const _DatePillRow({
     required this.date,
     required this.onPick,
     required this.onSet,
+    this.trailing,
   });
 
   @override
@@ -539,6 +697,10 @@ class _DatePillRow extends StatelessWidget {
             selected: isOther,
             onTap: onPick,
           ),
+          if (trailing != null) ...[
+            AppSpacing.gapSm,
+            trailing!,
+          ],
         ],
       ),
     );

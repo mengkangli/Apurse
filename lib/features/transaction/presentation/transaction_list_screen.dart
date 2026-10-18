@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -393,13 +394,19 @@ class _CalendarDayCell extends StatelessWidget {
     final hasAmount = summary != null && net != 0;
     final positive = net > 0;
     final accent = positive ? AppColors.income : AppColors.expense;
-    final bgColor =
-        hasAmount ? accent.withValues(alpha: 0.12) : cs.surfaceContainerLow;
+    final today = DateTime.now();
+    final isToday = day.year == today.year &&
+        day.month == today.month &&
+        day.day == today.day;
+    // Empty days recede so the days with activity stand out.
+    final bgColor = hasAmount ? accent.withValues(alpha: 0.12) : Colors.transparent;
     final borderColor = selected
         ? cs.primary
         : hasAmount
             ? accent.withValues(alpha: 0.28)
-            : cs.outlineVariant.withValues(alpha: 0.65);
+            : isToday
+                ? cs.primary.withValues(alpha: 0.4)
+                : cs.outlineVariant.withValues(alpha: 0.35);
 
     return Material(
       color: bgColor,
@@ -428,7 +435,7 @@ class _CalendarDayCell extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                hasAmount ? _formatCompactAmount(net) : '-',
+                hasAmount ? _formatCompactAmount(net) : '',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.labelSmall.copyWith(
@@ -791,6 +798,8 @@ class _TransactionCard extends ConsumerWidget {
           border: Border.all(color: cs.outlineVariant, width: 1),
         ),
         child: ListTile(
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.allLg),
+          onTap: () => context.push('/transaction/add', extra: tx),
           contentPadding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md, vertical: 4),
           leading: category != null

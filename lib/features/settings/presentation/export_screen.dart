@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../account/domain/account_repository.dart';
 import '../../transaction/domain/transaction_repository.dart';
 import '../../category/domain/category_repository.dart';
 
@@ -126,6 +127,11 @@ class _ExportScreenState extends State<ExportScreen> {
     );
   }
 
+  /// Spreadsheet apps run cells starting with = + - @ as formulas; a note
+  /// like "=HYPERLINK(...)" must stay text.
+  static String _cell(String text) =>
+      RegExp(r'^[=+\-@\t\r]').hasMatch(text) ? "'$text" : text;
+
   Future<void> _doExport() async {
     if (_startDate.isAfter(_endDate)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -141,6 +147,7 @@ class _ExportScreenState extends State<ExportScreen> {
       final catRepo = CategoryRepository();
       final all = await txRepo.getAll();
       final categories = await catRepo.getAll();
+      final accounts = await AccountRepository().getAll();
 
       final filtered = all.where((tx) {
         return !tx.date.isBefore(_startDate) && !tx.date.isAfter(_endDate);
@@ -162,18 +169,22 @@ class _ExportScreenState extends State<ExportScreen> {
         catMap[cat.id] = cat.name;
       }
 
+      final accountMap = {for (final a in accounts) a.id: a.name};
+
       final rows = <List<String>>[
-        ['日期', '类型', '分类', '金额', '备注'],
+        ['日期', '类型', '分类', '金额', '账户', '备注'],
         ...filtered.map((tx) => [
               DateFormat('yyyy-MM-dd').format(tx.date),
               tx.isIncome ? '收入' : '支出',
-              catMap[tx.categoryId] ?? '未知',
+              _cell(catMap[tx.categoryId] ?? '未知'),
               tx.amount.toStringAsFixed(2),
-              tx.note ?? '',
+              _cell(accountMap[tx.accountId] ?? ''),
+              _cell(tx.note ?? ''),
             ]),
       ];
 
-      final csv = const ListToCsvConverter().convert(rows);
+      // BOM so Excel opens the UTF-8 file with Chinese text intact.
+      final csv = '﻿${const ListToCsvConverter().convert(rows)}';
 
       final dir = await getTemporaryDirectory();
       final timeStr = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());

@@ -1,14 +1,24 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+class ApiException implements Exception {
+  final String message;
+  const ApiException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Client for the debug-only dev server (`tools/dev_server.py`).
 class ApiClient {
   final String baseUrl;
+  final Duration timeout;
 
-  ApiClient({required this.baseUrl});
+  ApiClient({required this.baseUrl, this.timeout = const Duration(seconds: 10)});
 
   Future<bool> healthCheck() async {
     try {
-      final resp = await http.get(Uri.parse('$baseUrl/health'));
+      final resp = await http.get(Uri.parse('$baseUrl/health')).timeout(timeout);
       return resp.statusCode == 200;
     } catch (_) {
       return false;
@@ -29,30 +39,15 @@ class ApiClient {
     if (whereArgs != null) body['whereArgs'] = whereArgs;
     if (orderBy != null) body['orderBy'] = orderBy;
     if (limit != null) body['limit'] = limit;
-
-    final resp = await http.post(
-      Uri.parse('$baseUrl/query'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-    return _parseList(resp);
+    return _parseList(await _post('query', body));
   }
 
   Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<dynamic>? args]) async {
-    final resp = await http.post(
-      Uri.parse('$baseUrl/raw_query'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'sql': sql, 'args': args ?? []}),
-    );
-    return _parseList(resp);
+    return _parseList(await _post('raw_query', {'sql': sql, 'args': args ?? []}));
   }
 
   Future<int> insert(String table, Map<String, dynamic> row) async {
-    await http.post(
-      Uri.parse('$baseUrl/insert'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'table': table, 'row': row}),
-    );
+    await _post('insert', {'table': table, 'row': row});
     return 1;
   }
 
@@ -65,13 +60,7 @@ class ApiClient {
     final body = <String, dynamic>{'table': table, 'row': row};
     if (where != null) body['where'] = where;
     if (whereArgs != null) body['whereArgs'] = whereArgs;
-
-    final resp = await http.post(
-      Uri.parse('$baseUrl/update'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final data = jsonDecode(await _post('update', body)) as Map<String, dynamic>;
     return data['count'] as int;
   }
 
@@ -83,18 +72,26 @@ class ApiClient {
     final body = <String, dynamic>{'table': table};
     if (where != null) body['where'] = where;
     if (whereArgs != null) body['whereArgs'] = whereArgs;
-
-    final resp = await http.post(
-      Uri.parse('$baseUrl/delete'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final data = jsonDecode(await _post('delete', body)) as Map<String, dynamic>;
     return data['count'] as int;
   }
 
-  List<Map<String, dynamic>> _parseList(http.Response resp) {
-    final list = jsonDecode(resp.body) as List<dynamic>;
+  Future<String> _post(String endpoint, Map<String, dynamic> body) async {
+    final resp = await http
+        .post(
+          Uri.parse('$baseUrl/$endpoint'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException('Dev server /$endpoint failed: ${resp.statusCode} ${resp.body}');
+    }
+    return resp.body;
+  }
+
+  List<Map<String, dynamic>> _parseList(String body) {
+    final list = jsonDecode(body) as List<dynamic>;
     return list.map((e) => e as Map<String, dynamic>).toList();
   }
 }
